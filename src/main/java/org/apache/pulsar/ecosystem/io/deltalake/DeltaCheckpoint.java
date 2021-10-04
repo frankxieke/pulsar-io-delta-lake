@@ -27,7 +27,7 @@ import lombok.Data;
 @Data
 public class DeltaCheckpoint implements Comparable<DeltaCheckpoint> {
     public static final String CheckpointStateKeyFormat = "checkpoint%d";
-    public static final Long LatestSnapShotVersion = new Long(-1);
+    public static final Long LatestSnapShotVersion = -1L;
 
     /**
      * StateType is the stage type of CDC copy.

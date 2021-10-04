@@ -38,7 +38,6 @@ import java.util.function.Function;
 import lombok.Data;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.simple.SimpleGroup;
-import org.apache.pulsar.common.util.Murmur3_32Hash;
 import org.apache.pulsar.ecosystem.io.deltalake.parquet.ParquetReaderUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +57,7 @@ public class DeltaReader {
 
 
     public static long getPartitionIdByDeltaPartitionValue(String partitionValue, long topicPartitionNum) {
-        return Murmur3_32Hash.getInstance().makeHash(partitionValue.getBytes())
+        return Murmur32Hash.getInstance().makeHash(partitionValue.getBytes())
                 % topicPartitionNum;
     }
 

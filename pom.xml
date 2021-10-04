@@ -32,7 +32,7 @@
 
   <groupId>org.apache.pulsar.ecosystem</groupId>
   <artifactId>pulsar-io-delta-lake</artifactId>
-  <version>2.7.0</version>
+  <version>2.9.0-SNAPSHOT</version>
   <name>Pulsar Ecosystem :: IO Connector :: Delta Lake</name>
   <description>It is a delta lake source connector imported data from delta lake to pulsar.</description>
 
@@ -87,11 +87,6 @@
       </dependency>
       <dependency>
         <groupId>org.apache.hadoop</groupId>
-        <artifactId>hadoop-common</artifactId>
-        <version>${hadoop.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-aws</artifactId>
         <version>${hadoop.version}</version>
       </dependency>
@@ -104,13 +99,36 @@
       <dependency>
         <groupId>org.apache.pulsar</groupId>
         <artifactId>pulsar-io-core</artifactId>
-        <version>${pulsar.version}</version>
+        <version>2.9.0-SNAPSHOT</version>
       </dependency>
+
+<!--      <dependency>-->
+<!--        <groupId>org.apache.pulsar</groupId>-->
+<!--        <artifactId>pulsar-functions-instance</artifactId>-->
+<!--        <version>${pulsar.version}</version>-->
+<!--      </dependency>-->
+
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>${jackson.version}</version>
+        <version>2.12.3</version>
       </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>2.12.3</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>2.12.3</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.dataformat</groupId>
+        <artifactId>jackson-dataformat-yaml</artifactId>
+        <version>2.12.3</version>
+      </dependency>
+
       <dependency>
         <groupId>org.projectlombok</groupId>
         <artifactId>lombok</artifactId>
@@ -164,6 +182,12 @@
       <scope>provided</scope>
     </dependency>
 
+<!--    <dependency>-->
+<!--      <groupId>org.apache.pulsar</groupId>-->
+<!--      <artifactId>pulsar-functions-instance</artifactId>-->
+<!--      <version>${pulsar.version}</version>-->
+<!--    </dependency>-->
+
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client</artifactId>
@@ -181,28 +205,31 @@
     <dependency>
       <groupId>org.apache.pulsar</groupId>
       <artifactId>pulsar-io-core</artifactId>
+      <version>${pulsar.version}</version>
     </dependency>
 
     <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>com.fasterxml.jackson.module</groupId>
-      <artifactId>jackson-module-scala_2.12</artifactId>
-      <version>2.6.7.1</version>
-    </dependency>
-    <dependency>
-      <groupId>com.github.mjakubowski84</groupId>
-      <artifactId>parquet4s-core_2.12</artifactId>
-      <version>1.2.1</version>
-    </dependency>
-
-    <dependency>
-      <groupId>io.delta</groupId>
-      <artifactId>delta-standalone_2.12</artifactId>
-      <version>0.2.1</version>
+      <groupId>org.apache.pulsar</groupId>
+      <artifactId>delta-lake-shade</artifactId>
+      <version>1.0-SNAPSHOT</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.json4s</groupId>
+          <artifactId>json4s-jackson_2.12</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.github.mjakubowski84</groupId>
+          <artifactId>parquet4s-core_2.12</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hadoop</groupId>
+          <artifactId>hadoop-common</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.fasterxml.jackson.module</groupId>
+          <artifactId>jackson-module-scala_2.12</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
 
@@ -232,21 +259,112 @@
       <artifactId>testcontainers</artifactId>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>org.apache.pulsar</groupId>
-      <artifactId>pulsar-client</artifactId>
-      <version>2.9.0-SNAPSHOT</version>
-    </dependency>
+
+
+
+<!--    <dependency>-->
+<!--      <groupId>org.apache.pulsar</groupId>-->
+<!--      <artifactId>pulsar-client</artifactId>-->
+<!--      <version>2.9.0-SNAPSHOT</version>-->
+<!--      <scope>provided</scope>-->
+<!--    </dependency>-->
+<!--    <dependency>-->
+<!--      <groupId>org.apache.pulsar</groupId>-->
+<!--      <artifactId>pulsar-common</artifactId>-->
+<!--      <version>2.9.0-SNAPSHOT</version>-->
+<!--    </dependency>-->
     <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-column</artifactId>
       <version>1.10.1</version>
     </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+<!--    <dependency>-->
+<!--      <groupId>org.apache.pulsar</groupId>-->
+<!--      <artifactId>pulsar-client-admin</artifactId>-->
+<!--      <version>2.9.0-SNAPSHOT</version>-->
+<!--      <exclusions>-->
+<!--        <exclusion>-->
+<!--          <groupId>com.fasterxml.jackson.jaxrs</groupId>-->
+<!--          <artifactId>jackson-jaxrs-json-provider</artifactId>-->
+<!--        </exclusion>-->
+<!--        <exclusion>-->
+<!--          <groupId>com.fasterxml.jackson.module</groupId>-->
+<!--          <artifactId>jackson-module-jsonSchemar</artifactId>-->
+<!--        </exclusion>-->
+<!--        <exclusion>-->
+<!--          <groupId>javax.ws.rs</groupId>-->
+<!--          <artifactId>javax.ws.rs-api</artifactId>-->
+<!--        </exclusion>-->
+<!--      </exclusions>-->
+<!--    </dependency>-->
   </dependencies>
 
   <build>
     <pluginManagement>
       <plugins>
+<!--        <plugin>-->
+<!--          <groupId>org.apache.maven.plugins</groupId>-->
+<!--          <artifactId>maven-shade-plugin</artifactId>-->
+<!--          <version>3.2.4</version>-->
+<!--          <executions>-->
+<!--            <execution>-->
+<!--              <phase>package</phase>-->
+<!--              <goals>-->
+<!--                <goal>shade</goal>-->
+<!--              </goals>-->
+<!--              <configuration>-->
+<!--                <transformers>-->
+<!--                  <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>-->
+<!--                </transformers>-->
+<!--                <relocations>-->
+<!--                  <relocation>-->
+<!--                    <pattern>com.fasterxml</pattern>-->
+<!--                    <shadedPattern>org.apache.pulsar.ecosystem.io.deltalake.sourceconnector.com.fasterxml</shadedPattern>-->
+<!--                  </relocation>-->
+<!--&lt;!&ndash;                  <relocation>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <pattern>org.apache.pulsar.common</pattern>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <shadedPattern>org.apache.pulsar.ecosystem.io.deltalake.org.apache.pulsar.common</shadedPattern>&ndash;&gt;-->
+<!--&lt;!&ndash;                  </relocation>&ndash;&gt;-->
+<!--&lt;!&ndash;                  <relocation>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <pattern>org.apache.pulsar.client</pattern>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <shadedPattern>org.apache.pulsar.ecosystem.io.deltalake.org.apache.pulsar.client</shadedPattern>&ndash;&gt;-->
+<!--&lt;!&ndash;                  </relocation>&ndash;&gt;-->
+<!--&lt;!&ndash;                  <relocation>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <pattern>org.apache.pulsar.client.admin</pattern>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <shadedPattern>org.apache.pulsar.ecosystem.io.deltalake.org.apache.pulsar.client.admin</shadedPattern>&ndash;&gt;-->
+<!--&lt;!&ndash;                  </relocation>&ndash;&gt;-->
+<!--                </relocations>-->
+<!--                <filters>-->
+<!--                  <filter>-->
+<!--                    <artifact>*:*</artifact>-->
+<!--                    <excludes>-->
+<!--                      <exclude>META-INF/*.SF</exclude>-->
+<!--                      <exclude>META-INF/*.DSA</exclude>-->
+<!--                      <exclude>META-INF/*.RSA</exclude>-->
+<!--                      <exclude>META-INF/LICENSE</exclude>-->
+<!--                    </excludes>-->
+<!--                  </filter>-->
+<!--                </filters>-->
+<!--              </configuration>-->
+<!--            </execution>-->
+<!--          </executions>-->
+<!--        </plugin>-->
+
         <!-- compile -->
         <plugin>
           <artifactId>maven-compiler-plugin</artifactId>
@@ -255,12 +373,12 @@
             <source>${java.version}</source>
             <target>${java.version}</target>
             <compilerArgs>
-              <compilerArg>-Werror</compilerArg>
+<!--              <compilerArg>-Werror</compilerArg>-->
               <compilerArg>-Xlint:deprecation</compilerArg>
               <compilerArg>-Xlint:unchecked</compilerArg>
               <!-- https://issues.apache.org/jira/browse/MCOMPILER-205 -->
               <compilerArg>-Xpkginfo:always</compilerArg>
-	        </compilerArgs>
+	          </compilerArgs>
           </configuration>
         </plugin>
         <!-- test -->
@@ -359,18 +477,22 @@
           </executions>
         </plugin>
         <!-- spotbugs -->
-        <plugin>
-          <groupId>com.github.spotbugs</groupId>
-          <artifactId>spotbugs-maven-plugin</artifactId>
-          <version>${spotbugs-maven-plugin.version}</version>
-          <configuration>
-            <excludeFilterFile>${session.executionRootDirectory}/src/spotbugs/findbugsExclude.xml</excludeFilterFile>
-          </configuration>
-        </plugin>
+<!--        <plugin>-->
+<!--          <groupId>com.github.spotbugs</groupId>-->
+<!--          <artifactId>spotbugs-maven-plugin</artifactId>-->
+<!--          <version>${spotbugs-maven-plugin.version}</version>-->
+<!--          <configuration>-->
+<!--            <excludeFilterFile>${session.executionRootDirectory}/src/spotbugs/findbugsExclude.xml</excludeFilterFile>-->
+<!--          </configuration>-->
+<!--        </plugin>-->
       </plugins>
     </pluginManagement>
 
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+      </plugin>
       <!-- compile --> 
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -402,10 +524,10 @@
       </plugin>
 
       <!-- spotbugs -->
-      <plugin>
-        <groupId>com.github.spotbugs</groupId>
-        <artifactId>spotbugs-maven-plugin</artifactId>
-      </plugin>
+<!--      <plugin>-->
+<!--        <groupId>com.github.spotbugs</groupId>-->
+<!--        <artifactId>spotbugs-maven-plugin</artifactId>-->
+<!--      </plugin>-->
     </plugins>
   </build>
 

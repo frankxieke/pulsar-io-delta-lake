@@ -48,7 +48,6 @@ import org.apache.pulsar.client.api.schema.GenericRecordBuilder;
 import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
-import org.apache.pulsar.client.impl.schema.generic.GenericAvroSchema;
 import org.apache.pulsar.common.schema.SchemaType;
 import org.apache.pulsar.functions.api.Record;
 
@@ -70,10 +69,12 @@ public class DeltaRecord implements Record<GenericRecord> {
     private GenericRecord value;
     private static GenericSchema<GenericRecord> s;
     private static StructType deltaSchema;
+    private String topic;
 
 
-    public DeltaRecord(DeltaReader.RowRecordData rowRecordData) throws Exception {
+    public DeltaRecord(DeltaReader.RowRecordData rowRecordData, String topic) throws Exception {
         properties = new HashMap<>();
+        this.topic = topic;
         if (rowRecordData.nextCursor.act instanceof AddFile) {
             properties.put(OP_FIELD, OP_ADD_RECORD);
             properties.put(PARTITION_VALUE_FIELD, DeltaReader.
@@ -146,8 +147,9 @@ public class DeltaRecord implements Record<GenericRecord> {
         if (fbuilder == null) {
             throw new Exception("filed is empty, can not covert to pulsar schema");
         }
-        GenericSchema<GenericRecord> schema1 = GenericAvroSchema.of(builder.build(SchemaType.AVRO));
-        return schema1;
+//        GenericSchema<GenericRecord> schema1 = GenericAvroSchema.of(builder.build(SchemaType.AVRO));
+//        GenericSchema<GenericRecord> schema1 = GenericSchema.<GenericRecord>of(builder.build(SchemaType.AVRO));
+        return Schema.generic(builder.build(SchemaType.AVRO));
     }
 
     private GenericRecord getGenericRecord(StructType rowRecordType, DeltaReader.RowRecordData rowRecordData) {
@@ -216,7 +218,7 @@ public class DeltaRecord implements Record<GenericRecord> {
             Long s = Long.parseLong(properties.get(TS_FIELD));
             return Optional.of(s);
         } catch (Exception e) {
-            return Optional.of(new Long(0));
+            return Optional.of(0L);
         }
     }
 
@@ -229,8 +231,8 @@ public class DeltaRecord implements Record<GenericRecord> {
     public Optional<Integer> getPartitionIndex() {
         Integer partitionId = 0;
         String partitionValueStr = properties.get(PARTITION_VALUE_FIELD);
-        return Optional.of(new Integer((int) DeltaReader.getPartitionIdByDeltaPartitionValue(partitionValueStr,
-                DeltaReader.topicPartitionNum)));
+        return Optional.of((int) DeltaReader.getPartitionIdByDeltaPartitionValue(partitionValueStr,
+                DeltaReader.topicPartitionNum));
     }
 
     @Override
@@ -255,7 +257,7 @@ public class DeltaRecord implements Record<GenericRecord> {
 
     @Override
     public Optional<String> getDestinationTopic() {
-        return Optional.empty();
+        return Optional.of(this.topic);
     }
 
     @Override

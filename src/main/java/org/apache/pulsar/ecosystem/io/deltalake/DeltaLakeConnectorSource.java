@@ -19,6 +19,8 @@
 
 package org.apache.pulsar.ecosystem.io.deltalake;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.HashMap;
@@ -26,7 +28,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+//import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -37,7 +39,6 @@ import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.functions.api.Record;
 import org.apache.pulsar.io.core.Source;
 import org.apache.pulsar.io.core.SourceContext;
-import org.apache.pulsar.shade.com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,26 +55,38 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
     private SourceContext sourceContext;
     private ExecutorService executor;
     private ExecutorService parseParquetExecutor;
-    private LinkedBlockingQueue<DeltaRecord> queue;
+    private LinkedBlockingQueue<DeltaRecord> queue = new LinkedBlockingQueue<DeltaRecord>();
     private long topicPartitionNum;
     private final Map<Integer, DeltaCheckpoint> checkpointMap = new HashMap<Integer, DeltaCheckpoint>();
     public DeltaReader reader;
+    private String destinationTopic;
 
     @Override
     public void open(Map<String, Object> map, SourceContext sourceContext) throws Exception {
+        System.out.println("map " + map + " context:" + sourceContext);
         if (null != config) {
             throw new IllegalStateException("Connector is already open");
         }
         this.sourceContext = sourceContext;
+        this.destinationTopic = sourceContext.getOutputTopic();
+        log.info("destination topic is {} {}",
+                this.destinationTopic, sourceContext.getClass().getResource("/").getPath());
+        Method[] m = sourceContext.getClass().getMethods();
+        for (Method method : m) {
+            log.info(method.getName());
+        }
+        log.info("path-> {} ", sourceContext.getClass().getProtectionDomain().getCodeSource().getLocation().getFile());
 
         // load the configuration and validate it
         this.config = DeltaLakeConnectorConfig.load(map);
         this.config.validate();
 
-        CompletableFuture<List<String>> listPartitions =
-                sourceContext.getPulsarClient().getPartitionsForTopic(sourceContext.getOutputTopic());
-        this.topicPartitionNum = listPartitions.get().size();
+//        log.info("client:{}", sourceContext.getPulsarClient());
 
+//        CompletableFuture<List<String>> listPartitions =
+//                sourceContext.getPulsarClient().getPartitionsForTopic(sourceContext.getOutputTopic());
+//        this.topicPartitionNum = listPartitions.get().size();
+        this.topicPartitionNum = 1;
         // try to open the delta lake
         reader = new DeltaReader(config.tablePath);
 
@@ -96,6 +109,7 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     @Override
     public Record<GenericRecord> read() throws Exception {
+        log.info("begin to take from queue");
         return this.queue.take();
     }
 
@@ -105,7 +119,7 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     public void enqueue(DeltaReader.RowRecordData rowRecordData) {
         try {
-            this.queue.put(new DeltaRecord(rowRecordData));
+            this.queue.put(new DeltaRecord(rowRecordData, this.destinationTopic));
         } catch (Exception ex) {
             log.error("delta message enqueue interrupted", ex);
         }
@@ -124,10 +138,9 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
         List<Integer> partitionList = new LinkedList<Integer>();
         for (int i = 0; i < topicPartitionNum; i++) {
+            log.info("i: {} numInstance {} instanceId {}", i, numInstance, instanceId);
             if (i % numInstance == instanceId) {
-                if (instanceId > topicPartitionNum) {
-                    partitionList.add(i);
-                }
+                partitionList.add(i);
             }
         }
 

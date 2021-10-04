@@ -20,12 +20,6 @@ package org.apache.pulsar.ecosystem.io.deltalake;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
-import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.apache.pulsar.client.api.schema.GenericSchema;
-import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
-import org.apache.pulsar.client.api.schema.SchemaBuilder;
-import org.apache.pulsar.client.impl.schema.generic.GenericAvroSchema;
-import org.apache.pulsar.common.schema.SchemaType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,18 +49,11 @@ public class DeltaReaderThread extends Thread {
 
                 for (int i = 0; i < actionList.size(); i++) {
                     List<DeltaReader.RowRecordData> rowRecords = reader.readParquetFile(actionList.get(i));
+                    log.info("enqueue: i: {} rowRecord {}", i, rowRecords);
+                    rowRecords.forEach(source::enqueue);
                 }
-                RecordSchemaBuilder builder = SchemaBuilder
-                        .record("test");
-                builder.field("test").required().type(SchemaType.STRING);
-
-                GenericSchema<GenericRecord> schema = GenericAvroSchema.of(builder.build(SchemaType.AVRO));
-
-                GenericRecord key = schema.newRecordBuilder().set("test", "foo").build();
-                GenericRecord value = schema.newRecordBuilder().set("test", "bar").build();
-
             } catch (Exception ex) {
-                log.error("read data from delta lake  error.", ex);
+                log.error("read data from delta lake error.", ex);
                 close();
             }
         }

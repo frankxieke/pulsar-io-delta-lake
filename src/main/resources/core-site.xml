@@ -26,4 +26,8 @@
       <name>fs.s3a.impl</name>
       <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
   </property>
+  <property>
+    <name>fs.file.impl</name>
+    <value>org.apache.hadoop.fs.LocalFileSystem</value>
+  </property>
 </configuration>
