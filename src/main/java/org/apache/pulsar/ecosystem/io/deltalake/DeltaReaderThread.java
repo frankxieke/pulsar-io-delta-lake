@@ -42,16 +42,24 @@ public class DeltaReaderThread extends Thread {
     public void run() {
         DeltaReader reader = this.source.reader;
         DeltaCheckpoint checkpoint = source.getMinCheckpoint();
+        Long startVersion = checkpoint.getSnapShotVersion();
         while (!stopped) {
             try {
+                log.info("begin to read version {} ", startVersion);
                 List<DeltaReader.ReadCursor> actionList = reader.getDeltaActionFromSnapShotVersion(
-                        checkpoint.getSnapShotVersion(), checkpoint.isFullCopy());
-                log.info("minCheckpoint: {} list: {}" , checkpoint, actionList);
+                        startVersion, checkpoint.isFullCopy());
+                if (actionList.size() == 0) {
+                    log.info("read from version: {} actionSize: {} nextVersion {}",
+                            startVersion, actionList.size(), startVersion + 1);
+                    Thread.sleep(1000 * 10);
+                    continue;
+                }
                 for (int i = 0; i < actionList.size(); i++) {
                     List<DeltaReader.RowRecordData> rowRecords = reader.readParquetFile(actionList.get(i));
-                    log.info("enqueue: i: {} rowRecord {}", i, rowRecords);
+                    log.info("version {} actionIndex: {} rowRecordSize {}", startVersion, i, rowRecords.size());
                     rowRecords.forEach(source::enqueue);
                 }
+                startVersion++;
             } catch (Exception ex) {
                 log.error("read data from delta lake error.", ex);
                 close();

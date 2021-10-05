@@ -181,23 +181,19 @@ public class DeltaReader {
         if (isFullSnapshot) {
             Snapshot snapshot = deltaLog.getSnapshotForVersionAsOf(startVersion);
             List<AddFile> addFiles = snapshot.getAllFiles();
-            log.info("allAddFile: {} startVersion: {} ", addFiles, startVersion);
+            log.info("allAddFile: {} startVersion: {}", addFiles, startVersion);
             for (int i = 0; i < addFiles.size(); i++) {
                 AddFile add = addFiles.get(i);
-                log.info("i : {} addFile: {}", i, add.toString());
                 String partitionValue = partitionValueToString(add.getPartitionValues());
                 ReadCursor cursor = new ReadCursor(add, startVersion, true, i, partitionValue);
-                log.info("cursor before  match {}", cursor);
                 if (isMatch(cursor)) {
                     actionList.add(cursor);
                 }
             }
-            log.info("return: {}", actionList);
         } else {
             Iterator<VersionLog> vlogs = deltaLog.getChanges(startVersion, false);
             while (vlogs.hasNext()) {
                 VersionLog v = vlogs.next();
-                log.info("getChanges return version: {} actionsNum: {}", startVersion, v.getActions().size());
                 if (v.getVersion() > startVersion) {
                     continue;
                 }
@@ -261,8 +257,12 @@ public class DeltaReader {
                     }
                 }
             }
-            deltaLog.update();
+            Snapshot snapshot = deltaLog.update();
+            if (snapshot.getVersion() > startVersion) {
+                log.info("read version change from to {}", startVersion, snapshot.getVersion());
+            }
         }
+        log.info("read next cursor return: {}", actionList);
         return actionList;
     }
 
@@ -285,7 +285,7 @@ public class DeltaReader {
         } else if (act instanceof  RemoveFile) {
             CompletableFuture<ParquetReaderUtils.Parquet> parquetFuture =
                     ParquetReaderUtils.getPargetParquetDataquetDataAsync(
-                            this.tablePath + "/" + ((AddFile) act).getPath(), this.executorService);
+                            this.tablePath + "/" + ((RemoveFile) act).getPath(), this.executorService);
             ParquetReaderUtils.Parquet parquet = parquetFuture.get();
             for (int i = 0; i < parquet.getData().size(); i++) {
                 ReadCursor tmp = startCursor;

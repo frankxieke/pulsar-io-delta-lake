@@ -50,12 +50,16 @@ import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
 import org.apache.pulsar.functions.api.Record;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A record wrapping an dataChange or metaChange message.
  */
 @Data
 public class DeltaRecord implements Record<GenericRecord> {
+    private static final Logger log = LoggerFactory.getLogger(DeltaRecord.class);
+
     public static final String OP_FIELD = "op";
     public static final String PARTITION_VALUE_FIELD = "partition_value";
     public static final String CAPTURE_TS_FIELD = "capture_ts";
@@ -142,22 +146,33 @@ public class DeltaRecord implements Record<GenericRecord> {
                 fbuilder = fbuilder.type(SchemaType.STRING);
             }
         }
-
         if (fbuilder == null) {
             throw new Exception("filed is empty, can not covert to pulsar schema");
         }
 //        GenericSchema<GenericRecord> schema1 = GenericAvroSchema.of(builder.build(SchemaType.AVRO));
 //        GenericSchema<GenericRecord> schema1 = GenericSchema.<GenericRecord>of(builder.build(SchemaType.AVRO));
-        return Schema.generic(builder.build(SchemaType.AVRO));
+
+        GenericSchema<GenericRecord> t = Schema.generic(builder.build(SchemaType.AVRO));
+
+        return t;
     }
 
     private GenericRecord getGenericRecord(StructType rowRecordType, DeltaReader.RowRecordData rowRecordData) {
-        if (s == null) {
+        if (rowRecordType == null) { // TODO f
+            StructField [] fields = new StructField[3];
+            fields[0] = new StructField("c1", new LongType(), true);
+            fields[1] = new StructField("c2", new LongType(), true);
+            fields[2] = new StructField("c3", new StringType(), true);
             try {
-                s = convertToPulsarSchema(rowRecordType);
+                rowRecordType = new StructType(fields);
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("new sruct type failed, ", e);
             }
+        }
+        try {
+            s = convertToPulsarSchema(rowRecordType);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
         GenericRecordBuilder builder = s.newRecordBuilder();
         for (int i = 0; i < rowRecordType.getFields().length; i++) {
@@ -194,7 +209,8 @@ public class DeltaRecord implements Record<GenericRecord> {
             }
             builder.set(field.getName(), value);
         }
-        return builder.build();
+        GenericRecord g = builder.build();
+        return g;
 
     }
 
@@ -210,10 +226,7 @@ public class DeltaRecord implements Record<GenericRecord> {
 
     @Override
     public Schema<GenericRecord> getSchema() {
-        if (s != null) {
-            return s;
-        }
-        return Schema.generic();
+        return s;
     }
 
     @Override

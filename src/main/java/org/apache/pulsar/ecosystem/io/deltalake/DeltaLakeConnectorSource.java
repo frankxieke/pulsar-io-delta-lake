@@ -58,6 +58,8 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
     private final Map<Integer, DeltaCheckpoint> checkpointMap = new HashMap<Integer, DeltaCheckpoint>();
     public DeltaReader reader;
     private String destinationTopic;
+    private long cnt = 0;
+    private long sendCnt = 0;
 
     @Override
     public void open(Map<String, Object> map, SourceContext sourceContext) throws Exception {
@@ -101,7 +103,7 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     @Override
     public Record<GenericRecord> read() throws Exception {
-        log.info("begin to take from queue");
+        cnt++;
         return this.queue.take();
     }
 
@@ -111,6 +113,8 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     public void enqueue(DeltaReader.RowRecordData rowRecordData) {
         try {
+            log.info("enqueue : {} {} [{}] totalcount:{}", rowRecordData, this.destinationTopic,
+                    rowRecordData.simpleGroup.toString(), sendCnt++);
             this.queue.put(new DeltaRecord(rowRecordData, this.destinationTopic));
         } catch (Exception ex) {
             log.error("delta message enqueue interrupted", ex);
@@ -212,7 +216,6 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     private Function<DeltaReader.ReadCursor, Boolean> initDeltaReadFilter(Map<Integer, DeltaCheckpoint> partitionMap) {
         return (readCursor) -> {
-            log.info("readCursor befre : {}", readCursor);
             if (readCursor == null) {
                 log.info("readCursor is null return true");
                 return true;
@@ -225,7 +228,6 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
             }
 
             DeltaCheckpoint newCheckPoint = null;
-            log.info("readCursor : {}", readCursor);
             if (readCursor.isFullSnapShot) {
                 newCheckPoint = new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, readCursor.version);
             } else {
@@ -237,7 +239,6 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
             if (s == null) {
                 log.error("checkpoint for partition {} {} is missing", this.checkpointMap, slot);
             }
-            log.info("newCheckpoint: {} old {}", newCheckPoint, s);
             if (s != null && newCheckPoint.compareTo(s) >= 0) {
                 return true;
             }
