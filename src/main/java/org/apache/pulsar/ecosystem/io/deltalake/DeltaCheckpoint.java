@@ -51,6 +51,8 @@ public class DeltaCheckpoint implements Comparable<DeltaCheckpoint> {
     public DeltaCheckpoint(StateType state, Long snapshotVersion) {
         this.state = state;
         this.snapShotVersion = snapshotVersion;
+        this.metadataChangeFileIndex = 0L;
+        this.rowNum = 0L;
     }
 
     private StateType state;

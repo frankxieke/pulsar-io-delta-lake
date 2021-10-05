@@ -46,7 +46,7 @@ public class DeltaReaderThread extends Thread {
             try {
                 List<DeltaReader.ReadCursor> actionList = reader.getDeltaActionFromSnapShotVersion(
                         checkpoint.getSnapShotVersion(), checkpoint.isFullCopy());
-
+                log.info("minCheckpoint: {} list: {}" , checkpoint, actionList);
                 for (int i = 0; i < actionList.size(); i++) {
                     List<DeltaReader.RowRecordData> rowRecords = reader.readParquetFile(actionList.get(i));
                     log.info("enqueue: i: {} rowRecord {}", i, rowRecords);

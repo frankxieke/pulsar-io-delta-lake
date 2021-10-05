@@ -20,7 +20,6 @@
 package org.apache.pulsar.ecosystem.io.deltalake;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.HashMap;
@@ -28,7 +27,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-//import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -70,18 +68,12 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
         this.sourceContext = sourceContext;
         this.destinationTopic = sourceContext.getOutputTopic();
         log.info("destination topic is {} {}",
-                this.destinationTopic, sourceContext.getClass().getResource("/").getPath());
-        Method[] m = sourceContext.getClass().getMethods();
-        for (Method method : m) {
-            log.info(method.getName());
-        }
+                this.destinationTopic, sourceContext.getNumInstances());
         log.info("path-> {} ", sourceContext.getClass().getProtectionDomain().getCodeSource().getLocation().getFile());
 
         // load the configuration and validate it
         this.config = DeltaLakeConnectorConfig.load(map);
         this.config.validate();
-
-//        log.info("client:{}", sourceContext.getPulsarClient());
 
 //        CompletableFuture<List<String>> listPartitions =
 //                sourceContext.getPulsarClient().getPartitionsForTopic(sourceContext.getOutputTopic());
@@ -146,6 +138,25 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
         if (partitionList.size() <= 0) {
             return Optional.empty();
+        } else if (sourceContext != null){ //TODO fix this
+            Long startVersion = reader.getLatestSnapShotVersion();
+            if (!this.config.startingVersion.equals("")) {
+                startVersion = reader.getAndValidateSnapShotVersion(this.config.startingSnapShotVersionNumber);
+            } else if (!this.config.startingTimeStamp.equals("")) {
+                startVersion = reader.getSnapShotVersionFromTimeStamp(this.config.startingTimeStampSecond);
+            }
+            if (this.config.includeHistoryData) {
+                checkpointMap.put(minCheckpointMapKey,
+                        new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, startVersion));
+                checkpointMap.put(Integer.valueOf(0),
+                        new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, startVersion));
+            } else {
+                checkpointMap.put(minCheckpointMapKey,
+                        new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY, startVersion));
+                checkpointMap.put(Integer.valueOf(0),
+                        new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY, startVersion));
+            }
+            return Optional.of(checkpointMap);
         }
 
         for (int i = 0; i < partitionList.size(); i++) {
@@ -201,13 +212,20 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     private Function<DeltaReader.ReadCursor, Boolean> initDeltaReadFilter(Map<Integer, DeltaCheckpoint> partitionMap) {
         return (readCursor) -> {
+            log.info("readCursor befre : {}", readCursor);
+            if (readCursor == null) {
+                log.info("readCursor is null return true");
+                return true;
+            }
             long slot = DeltaReader.getPartitionIdByDeltaPartitionValue(readCursor.partitionValue,
                     this.topicPartitionNum);
-            if (!partitionMap.containsKey(slot)) {
+            if (!partitionMap.containsKey(Integer.valueOf((int) slot))) {
+                log.info("partitionMap {} not includeing {}", partitionMap, slot);
                 return false;
             }
 
             DeltaCheckpoint newCheckPoint = null;
+            log.info("readCursor : {}", readCursor);
             if (readCursor.isFullSnapShot) {
                 newCheckPoint = new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, readCursor.version);
             } else {
@@ -215,10 +233,11 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
             }
             newCheckPoint.setMetadataChangeFileIndex(readCursor.changeIndex);
 
-            DeltaCheckpoint s = this.checkpointMap.get(slot);
+            DeltaCheckpoint s = this.checkpointMap.get(Integer.valueOf((int) slot));
             if (s == null) {
-                log.error("checkpoint for partition {} is missing");
+                log.error("checkpoint for partition {} {} is missing", this.checkpointMap, slot);
             }
+            log.info("newCheckpoint: {} old {}", newCheckPoint, s);
             if (s != null && newCheckPoint.compareTo(s) >= 0) {
                 return true;
             }

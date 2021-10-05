@@ -57,6 +57,9 @@ public class DeltaReader {
 
 
     public static long getPartitionIdByDeltaPartitionValue(String partitionValue, long topicPartitionNum) {
+        if (partitionValue == null) {
+            partitionValue = "";
+        }
         return Murmur32Hash.getInstance().makeHash(partitionValue.getBytes())
                 % topicPartitionNum;
     }
@@ -65,7 +68,7 @@ public class DeltaReader {
      * The ActionLog is used to describe one meta action change.
      */
     @Data
-    public static class ReadCursor {
+    public class ReadCursor {
         Action act;
         Long version;
         Boolean isFullSnapShot;
@@ -77,7 +80,12 @@ public class DeltaReader {
 
         public ReadCursor(Action act, Long version, Boolean isFullSnapShot,
                           long changeIndex, String partitionValue) {
-            new ReadCursor(act, version, isFullSnapShot, changeIndex, partitionValue, 0);
+            this.act = act;
+            this.version = version;
+            this.isFullSnapShot = isFullSnapShot;
+            this.changeIndex = changeIndex;
+            this.partitionValue = partitionValue;
+            this.rowNum = 0;
         }
         public ReadCursor(Action act, Long version, Boolean isFullSnapShot,
                           long changeIndex, String partitionValue, long rowNum) {
@@ -173,14 +181,18 @@ public class DeltaReader {
         if (isFullSnapshot) {
             Snapshot snapshot = deltaLog.getSnapshotForVersionAsOf(startVersion);
             List<AddFile> addFiles = snapshot.getAllFiles();
+            log.info("allAddFile: {} startVersion: {} ", addFiles, startVersion);
             for (int i = 0; i < addFiles.size(); i++) {
                 AddFile add = addFiles.get(i);
+                log.info("i : {} addFile: {}", i, add.toString());
                 String partitionValue = partitionValueToString(add.getPartitionValues());
                 ReadCursor cursor = new ReadCursor(add, startVersion, true, i, partitionValue);
+                log.info("cursor before  match {}", cursor);
                 if (isMatch(cursor)) {
                     actionList.add(cursor);
                 }
             }
+            log.info("return: {}", actionList);
         } else {
             Iterator<VersionLog> vlogs = deltaLog.getChanges(startVersion, false);
             while (vlogs.hasNext()) {
@@ -232,7 +244,8 @@ public class DeltaReader {
                         if (matchFlag) {
                             actionList.add(cursor);
                         }
-                    } else {
+                    } else if (act instanceof Metadata){
+                        log.info("act metata : {} {} ", act.getClass());
                         Metadata meta = (Metadata) act;
                         log.info("getChanges version: {} index: {} metadataChange schema:{} partitionColum:{}"
                                         + " format:{} createTime:{}",
@@ -243,6 +256,8 @@ public class DeltaReader {
                         ReadCursor cursor = new ReadCursor(meta, startVersion,
                                 false, i, "");
                         actionList.add(cursor);
+                    } else {
+
                     }
                 }
             }
@@ -258,7 +273,7 @@ public class DeltaReader {
         if (act instanceof AddFile) {
             CompletableFuture<ParquetReaderUtils.Parquet> parquetFuture =
                     ParquetReaderUtils.getPargetParquetDataquetDataAsync(
-                    ((AddFile) act).getPath(), this.executorService);
+                            this.tablePath + "/" + ((AddFile) act).getPath(), this.executorService);
             ParquetReaderUtils.Parquet parquet = parquetFuture.get();
             for (int i = 0; i < parquet.getData().size(); i++) {
                 ReadCursor tmp = startCursor;
@@ -270,7 +285,7 @@ public class DeltaReader {
         } else if (act instanceof  RemoveFile) {
             CompletableFuture<ParquetReaderUtils.Parquet> parquetFuture =
                     ParquetReaderUtils.getPargetParquetDataquetDataAsync(
-                            ((AddFile) act).getPath(), this.executorService);
+                            this.tablePath + "/" + ((AddFile) act).getPath(), this.executorService);
             ParquetReaderUtils.Parquet parquet = parquetFuture.get();
             for (int i = 0; i < parquet.getData().size(); i++) {
                 ReadCursor tmp = startCursor;

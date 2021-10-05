@@ -96,7 +96,6 @@ public class DeltaRecord implements Record<GenericRecord> {
             deltaSchema = ((Metadata) rowRecordData.nextCursor.act).getSchema();
             s = convertToPulsarSchema(deltaSchema);
         }
-
     }
 
     private GenericSchema<GenericRecord> convertToPulsarSchema(StructType parquetSchema) throws Exception {
@@ -153,6 +152,13 @@ public class DeltaRecord implements Record<GenericRecord> {
     }
 
     private GenericRecord getGenericRecord(StructType rowRecordType, DeltaReader.RowRecordData rowRecordData) {
+        if (s == null) {
+            try {
+                s = convertToPulsarSchema(rowRecordType);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
         GenericRecordBuilder builder = s.newRecordBuilder();
         for (int i = 0; i < rowRecordType.getFields().length; i++) {
             StructField field = rowRecordType.getFields()[i];
@@ -204,7 +210,10 @@ public class DeltaRecord implements Record<GenericRecord> {
 
     @Override
     public Schema<GenericRecord> getSchema() {
-        return s;
+        if (s != null) {
+            return s;
+        }
+        return Schema.generic();
     }
 
     @Override
