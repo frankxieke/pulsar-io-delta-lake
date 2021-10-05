@@ -102,7 +102,7 @@ public class DeltaRecord implements Record<GenericRecord> {
         }
     }
 
-    private GenericSchema<GenericRecord> convertToPulsarSchema(StructType parquetSchema) throws Exception {
+    public static GenericSchema<GenericRecord> convertToPulsarSchema(StructType parquetSchema) throws Exception {
         // Try to transform schema
         RecordSchemaBuilder builder = SchemaBuilder
                 .record(parquetSchema.getTypeName());
