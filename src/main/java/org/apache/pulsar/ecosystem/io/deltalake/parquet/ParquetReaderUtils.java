@@ -69,9 +69,8 @@ public class ParquetReaderUtils {
     }
 
 
-    public static Parquet getPargetParquetDataquetData(String filePath) throws IOException {
+    public static Parquet getPargetParquetDataquetData(String filePath, Configuration conf) throws IOException {
             List<SimpleGroup> simpleGroups = new ArrayList<SimpleGroup>();
-            Configuration conf = new Configuration();
             ParquetFileReader reader = ParquetFileReader.open(HadoopInputFile.fromPath(new Path(filePath), conf));
             MessageType schema = reader.getFooter().getFileMetaData().getSchema();
             List<Type> fields = schema.getFields();
@@ -89,12 +88,12 @@ public class ParquetReaderUtils {
             reader.close();
             return new Parquet(simpleGroups, fields, schema);
     }
-    public static CompletableFuture<Parquet> getPargetParquetDataquetDataAsync(String filePath,
+    public static CompletableFuture<Parquet> getPargetParquetDataquetDataAsync(String filePath, Configuration conf,
                                                                           ExecutorService executorService) {
         CompletableFuture<Parquet> cf = new CompletableFuture<>();
         CompletableFuture.runAsync(()-> {
             try {
-                cf.complete(getPargetParquetDataquetData(filePath));
+                cf.complete(getPargetParquetDataquetData(filePath, conf));
             } catch (IOException e) {
                 cf.completeExceptionally(e);
             }

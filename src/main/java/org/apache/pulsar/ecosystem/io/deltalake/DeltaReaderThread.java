@@ -18,6 +18,7 @@
  */
 package org.apache.pulsar.ecosystem.io.deltalake;
 
+import io.delta.standalone.actions.Metadata;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
@@ -45,16 +46,32 @@ public class DeltaReaderThread extends Thread {
         Long startVersion = checkpoint.getSnapShotVersion();
         while (!stopped) {
             try {
-                log.info("begin to read version {} ", startVersion);
+                log.debug("begin to read version {} ", startVersion);
                 List<DeltaReader.ReadCursor> actionList = reader.getDeltaActionFromSnapShotVersion(
                         startVersion, checkpoint.isFullCopy());
                 if (actionList.size() == 0) {
-                    log.info("read from version: {} actionSize: {} nextVersion {}",
-                            startVersion, actionList.size(), startVersion + 1);
-                    Thread.sleep(1000 * 10);
-                    continue;
+                    if (startVersion == checkpoint.getSnapShotVersion()
+                            && checkpoint.getMetadataChangeFileIndex() > 0 && checkpoint.getRowNum() > 0) {
+                        log.info("read end of the delta version {}, will go to next version {}",
+                                startVersion, startVersion + 1);
+                        startVersion = startVersion + 1;
+                        continue;
+                    } else {
+                        log.debug("read from version: {}  not find any delta actions, wait to get actions next round",
+                                startVersion, actionList.size(), startVersion + 1);
+                        Thread.sleep(1000 * 10);
+                        continue;
+                    }
                 }
                 for (int i = 0; i < actionList.size(); i++) {
+                    if (actionList.get(i).act instanceof Metadata) {
+                        source.setDeltaSchema(((Metadata) actionList.get(i).act).getSchema());
+                        continue;
+                    }
+                    if (i == actionList.size() - 1) {
+                        DeltaReader.ReadCursor cursor = actionList.get(i);
+                        cursor.endOfVersion = true;
+                    }
                     List<DeltaReader.RowRecordData> rowRecords = reader.readParquetFile(actionList.get(i));
                     log.info("version {} actionIndex: {} rowRecordSize {}", startVersion, i, rowRecords.size());
                     rowRecords.forEach(source::enqueue);

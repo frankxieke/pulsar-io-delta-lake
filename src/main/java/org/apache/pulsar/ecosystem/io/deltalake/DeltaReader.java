@@ -38,6 +38,7 @@ import java.util.function.Function;
 import lombok.Data;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.parquet.example.data.simple.SimpleGroup;
+import org.apache.parquet.schema.Type;
 import org.apache.pulsar.ecosystem.io.deltalake.parquet.ParquetReaderUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,7 @@ public class DeltaReader {
     public Function<ReadCursor, Boolean> filter;
     public static long topicPartitionNum;
     public ExecutorService executorService;
+    public DeltaLakeConnectorConfig config;
 
 
     public static long getPartitionIdByDeltaPartitionValue(String partitionValue, long topicPartitionNum) {
@@ -65,10 +67,10 @@ public class DeltaReader {
     }
 
     /**
-     * The ActionLog is used to describe one meta action change.
+     * The ReadCursor is used to describe the read position.
      */
     @Data
-    public class ReadCursor {
+    public class ReadCursor implements Cloneable {
         Action act;
         Long version;
         Boolean isFullSnapShot;
@@ -96,6 +98,17 @@ public class DeltaReader {
             this.partitionValue = partitionValue;
             this.rowNum = rowNum;
         }
+
+        @Override
+        protected Object clone() {
+            ReadCursor rc = null;
+            try {
+                rc = (ReadCursor) super.clone();
+            } catch (CloneNotSupportedException e) {
+                e.printStackTrace();
+            }
+            return rc;
+        }
     }
 
     /**
@@ -104,36 +117,24 @@ public class DeltaReader {
     public static class RowRecordData {
         ReadCursor nextCursor;
         SimpleGroup simpleGroup;
+        List<Type> parquetSchema;
 
         public RowRecordData(ReadCursor nextCursor, SimpleGroup simpleGroup) {
             this.nextCursor = nextCursor;
             this.simpleGroup = simpleGroup;
         }
+
+        public RowRecordData(ReadCursor nextCursor, SimpleGroup simpleGroup,
+                             List<Type> parquetSchema) {
+            this.nextCursor = nextCursor;
+            this.simpleGroup = simpleGroup;
+            this.parquetSchema = parquetSchema;
+        }
     }
 
-    public DeltaReader(DeltaCheckpoint startCheckpoint, String tablePath, long topicPartitionNum) throws Exception {
-        new DeltaReader(startCheckpoint, tablePath, topicPartitionNum, null);
-    }
-
-    public DeltaReader(DeltaCheckpoint startCheckpoint, String tablePath, long topicPartitionNum,
-                       Function<ReadCursor, Boolean> filter) throws Exception {
-        this.startCheckpoint = startCheckpoint;
-        this.tablePath = tablePath;
-        this.topicPartitionNum = topicPartitionNum;
-        this.filter = filter;
-        this.open();
-    }
-
-    public DeltaReader(String tablePath, long topicPartitionNum,
-                       Function<ReadCursor, Boolean> filter) throws Exception {
-        this.tablePath = tablePath;
-        this.filter = filter;
-        this.topicPartitionNum = topicPartitionNum;
-        this.open();
-    }
-
-    public DeltaReader(String tablePath) throws Exception {
-        this.tablePath = tablePath;
+    public DeltaReader(DeltaLakeConnectorConfig config) throws Exception {
+        this.config = config;
+        this.tablePath = this.config.tablePath;
         this.open();
     }
 
@@ -142,13 +143,19 @@ public class DeltaReader {
         Snapshot s = null;
         try {
             s = deltaLog.getSnapshotForTimestampAsOf(timeStamp);
-            return s.getVersion();
-        } catch (Exception e) {
-            s = deltaLog.snapshot();
             long v = s.getVersion();
-            log.error("timestamp  {} is not exist is delta lake, will use the latest version {}",
-                    timeStamp, v);
             return v;
+        } catch (Exception e) {
+            try {
+                s = deltaLog.update();
+                long v = s.getVersion();
+                log.error("timestamp  {} is not exist is delta lake, will use the latest version {}",
+                        timeStamp, v);
+                return v;
+            } catch (Exception e2) {
+                log.warn("get latest snapshot version failed, use 0 instead");
+                return 0L;
+            }
         }
     }
 
@@ -156,23 +163,36 @@ public class DeltaReader {
         Snapshot s = null;
         try {
             if (snapShotVersion == -1) {
-                s = deltaLog.snapshot();
-                return s.getVersion();
+                try {
+                    s = deltaLog.update();
+                    long v = s.getVersion();
+                    log.error("snapShotVersion {} is not exist is delta lake, will use the latest version {}",
+                            snapShotVersion, v);
+                    return v;
+                } catch (Exception e) {
+                    log.warn("get latest snapshot version failed, use 0 instead");
+                    return 0L;
+                }
             }
             s = deltaLog.getSnapshotForVersionAsOf(snapShotVersion);
             return s.getVersion();
         } catch (Exception e) {
-            s = deltaLog.snapshot();
-            long v = s.getVersion();
-            log.error("snapShotVersion {} is not exist is delta lake, will use the latest version {}",
-                    snapShotVersion, v);
-            return v;
+            try {
+                s = deltaLog.update();
+                long v = s.getVersion();
+                log.error("snapShotVersion {} is not exist is delta lake, will use the latest version {}",
+                        snapShotVersion, v);
+                return v;
+            } catch (Exception e2) {
+                log.warn("get latest snapshot version failed, use 0 instead");
+                return 0L;
+            }
         }
     }
 
-    public Long getLatestSnapShotVersion() {
-        Snapshot s = deltaLog.snapshot();
-        return s.getVersion();
+    public Snapshot getSnapShot(Long snapShotVersion) {
+        Snapshot s = deltaLog.getSnapshotForVersionAsOf(snapShotVersion);
+        return s;
     }
 
     public List<ReadCursor> getDeltaActionFromSnapShotVersion(Long startVersion,
@@ -181,7 +201,7 @@ public class DeltaReader {
         if (isFullSnapshot) {
             Snapshot snapshot = deltaLog.getSnapshotForVersionAsOf(startVersion);
             List<AddFile> addFiles = snapshot.getAllFiles();
-            log.info("allAddFile: {} startVersion: {}", addFiles, startVersion);
+            log.debug("allAddFile: {} startVersion: {}", addFiles, startVersion);
             for (int i = 0; i < addFiles.size(); i++) {
                 AddFile add = addFiles.get(i);
                 String partitionValue = partitionValueToString(add.getPartitionValues());
@@ -219,7 +239,7 @@ public class DeltaReader {
 
                     } else if (act instanceof CommitInfo) {
                         CommitInfo info = (CommitInfo) act;
-                        log.info("getChanges version: {} index: {} Operation {} "
+                        log.info("getChanges skip commitInfo version: {} index: {} Operation {} "
                                         + "operationParam {} modifiTime:{} operationMetrics:{}",
                                 startVersion, i, info.getOperation(),
                                 info.getOperationParameters().toString(),
@@ -241,11 +261,10 @@ public class DeltaReader {
                             actionList.add(cursor);
                         }
                     } else if (act instanceof Metadata){
-                        log.info("act metata : {} {} ", act.getClass());
                         Metadata meta = (Metadata) act;
                         log.info("getChanges version: {} index: {} metadataChange schema:{} partitionColum:{}"
                                         + " format:{} createTime:{}",
-                                startVersion, i, meta.getSchema().toString(),
+                                startVersion, i, meta.getSchema().getTreeString(),
                                 meta.getPartitionColumns().toString(),
                                 meta.getFormat(),
                                 meta.getCreatedTime());
@@ -253,45 +272,59 @@ public class DeltaReader {
                                 false, i, "");
                         actionList.add(cursor);
                     } else {
-
+                        log.info("getChanges skip unknown change type: {}", act);
                     }
                 }
             }
-            Snapshot snapshot = deltaLog.update();
-            if (snapshot.getVersion() > startVersion) {
-                log.info("read version change from to {}", startVersion, snapshot.getVersion());
-            }
         }
-        log.info("read next cursor return: {}", actionList);
         return actionList;
     }
 
     public List<RowRecordData> readParquetFile(ReadCursor startCursor) throws Exception {
         Action act = startCursor.act;
-        String path = "";
         List<RowRecordData> recordList = new LinkedList<>();
+        Configuration conf = new Configuration();
+        String filePath;
+        if (config.fileSystemType.equals(config.S3Type)) {
+            conf.set("fs.s3a.access.key", config.s3aAccesskey);
+            conf.set("fs.s3a.secret.key", config.s3aSecretKey);
+            conf.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        }
         if (act instanceof AddFile) {
+            if (config.fileSystemType.equals(config.FileSystemType)) {
+                filePath = config.tablePath + "/" + ((AddFile) act).getPath();
+            } else {
+                filePath = ((AddFile) act).getPath();
+            }
             CompletableFuture<ParquetReaderUtils.Parquet> parquetFuture =
                     ParquetReaderUtils.getPargetParquetDataquetDataAsync(
-                            this.tablePath + "/" + ((AddFile) act).getPath(), this.executorService);
+                            filePath, conf, this.executorService);
             ParquetReaderUtils.Parquet parquet = parquetFuture.get();
             for (int i = 0; i < parquet.getData().size(); i++) {
-                ReadCursor tmp = startCursor;
+                ReadCursor tmp = (ReadCursor) startCursor.clone();
                 tmp.rowNum = i;
+                if (i == parquet.getData().size() - 1) {
+                    tmp.endOfFile = true;
+                }
                 if (isMatch(tmp)) {
-                    recordList.add(new RowRecordData(tmp, parquet.getData().get(i)));
+                    recordList.add(new RowRecordData(tmp, parquet.getData().get(i), parquet.getSchema()));
                 }
             }
         } else if (act instanceof  RemoveFile) {
+            if (config.fileSystemType.equals(config.FileSystemType)) {
+                filePath = config.tablePath + "/" + ((AddFile) act).getPath();
+            } else {
+                filePath = ((RemoveFile) act).getPath();
+            }
             CompletableFuture<ParquetReaderUtils.Parquet> parquetFuture =
                     ParquetReaderUtils.getPargetParquetDataquetDataAsync(
-                            this.tablePath + "/" + ((RemoveFile) act).getPath(), this.executorService);
+                            filePath, conf, this.executorService);
             ParquetReaderUtils.Parquet parquet = parquetFuture.get();
             for (int i = 0; i < parquet.getData().size(); i++) {
                 ReadCursor tmp = startCursor;
                 tmp.rowNum = i;
                 if (isMatch(tmp)) {
-                    recordList.add(new RowRecordData(tmp, parquet.getData().get(i)));
+                    recordList.add(new RowRecordData(tmp, parquet.getData().get(i), parquet.getSchema()));
                 }
             }
         } else if (act instanceof CommitInfo) {

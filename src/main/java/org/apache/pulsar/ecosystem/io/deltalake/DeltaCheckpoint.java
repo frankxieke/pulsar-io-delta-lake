@@ -55,15 +55,20 @@ public class DeltaCheckpoint implements Comparable<DeltaCheckpoint> {
         this.rowNum = 0L;
     }
 
+    @Override
+    public String toString() {
+        return "DeltaCheckpoint{"
+                + "state=" + state
+                + ", snapShotVersion=" + snapShotVersion
+                + ", metadataChangeFileIndex=" + metadataChangeFileIndex
+                + ", rowNum=" + rowNum
+                + '}';
+    }
+
     private StateType state;
     private Long snapShotVersion;
     private Long metadataChangeFileIndex;
     private Long rowNum;
-    private String parquetFile;
-    private String tablePath;
-    private long partitionId;
-    private String op;
-    private Long ts;
 
     @Override
     public int compareTo(DeltaCheckpoint o) {

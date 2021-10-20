@@ -19,7 +19,10 @@
 
 package org.apache.pulsar.ecosystem.io.deltalake;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.standalone.types.StructType;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.HashMap;
@@ -27,13 +30,17 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import lombok.AccessLevel;
 import lombok.Getter;
+import org.apache.pulsar.client.admin.PulsarAdmin;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.schema.GenericRecord;
+import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.functions.api.Record;
 import org.apache.pulsar.io.core.Source;
 import org.apache.pulsar.io.core.SourceContext;
@@ -61,6 +68,14 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
     private long cnt = 0;
     private long sendCnt = 0;
 
+    public void setDeltaSchema(StructType deltaSchema) {
+        log.info("update pulsar schema from {} to {}", this.deltaSchema.getTreeString(), deltaSchema.getTreeString());
+        this.deltaSchema = deltaSchema;
+    }
+
+    private StructType deltaSchema;
+    private GenericSchema<GenericRecord> pulsarSchema;
+
     @Override
     public void open(Map<String, Object> map, SourceContext sourceContext) throws Exception {
         System.out.println("map " + map + " context:" + sourceContext);
@@ -77,12 +92,11 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
         this.config = DeltaLakeConnectorConfig.load(map);
         this.config.validate();
 
-//        CompletableFuture<List<String>> listPartitions =
-//                sourceContext.getPulsarClient().getPartitionsForTopic(sourceContext.getOutputTopic());
-//        this.topicPartitionNum = listPartitions.get().size();
-        this.topicPartitionNum = 1;
+        CompletableFuture<List<String>> listPartitions =
+                sourceContext.getPulsarClient().getPartitionsForTopic(sourceContext.getOutputTopic());
+        this.topicPartitionNum = listPartitions.get().size();
         // try to open the delta lake
-        reader = new DeltaReader(config.tablePath);
+        reader = new DeltaReader(config);
 
         Optional<Map<Integer, DeltaCheckpoint>> checkpointMapOpt = getCheckpointFromStateStore(sourceContext);
         if (!checkpointMapOpt.isPresent()) {
@@ -98,13 +112,13 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
         executor = Executors.newFixedThreadPool(1);
         executor.execute(new DeltaReaderThread(this, parseParquetExecutor));
-
     }
 
     @Override
     public Record<GenericRecord> read() throws Exception {
         cnt++;
-        return this.queue.take();
+        DeltaRecord deltaRecord = this.queue.take();
+        return deltaRecord;
     }
 
     @Override
@@ -113,9 +127,13 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
     public void enqueue(DeltaReader.RowRecordData rowRecordData) {
         try {
-            log.info("enqueue : {} {} [{}] totalcount:{}", rowRecordData, this.destinationTopic,
+            log.info("enqueue : {} {} [{}] totalcount:{}", rowRecordData.nextCursor.toString(), this.destinationTopic,
                     rowRecordData.simpleGroup.toString(), sendCnt++);
-            this.queue.put(new DeltaRecord(rowRecordData, this.destinationTopic));
+            if (this.deltaSchema != null) {
+                this.queue.put(new DeltaRecord(rowRecordData, this.destinationTopic, deltaSchema, this.sourceContext));
+            } else if (this.pulsarSchema != null) {
+                this.queue.put(new DeltaRecord(rowRecordData, this.destinationTopic, pulsarSchema, this.sourceContext));
+            }
         } catch (Exception ex) {
             log.error("delta message enqueue interrupted", ex);
         }
@@ -126,7 +144,7 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
      * get checkpoint position from pulsar function stateStore.
      * @return if this instance not own any partition, will return empty, else return the checkpoint map.
      */
-    public Optional<Map<Integer, DeltaCheckpoint>> getCheckpointFromStateStore(SourceContext sourceContext)
+    Optional<Map<Integer, DeltaCheckpoint>> getCheckpointFromStateStore(SourceContext sourceContext)
             throws Exception {
         int instanceId = sourceContext.getInstanceId();
         int numInstance = sourceContext.getNumInstances();
@@ -142,43 +160,31 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
 
         if (partitionList.size() <= 0) {
             return Optional.empty();
-        } else if (sourceContext != null){ //TODO fix this
-            Long startVersion = reader.getLatestSnapShotVersion();
-            if (!this.config.startingVersion.equals("")) {
-                startVersion = reader.getAndValidateSnapShotVersion(this.config.startingSnapShotVersionNumber);
-            } else if (!this.config.startingTimeStamp.equals("")) {
-                startVersion = reader.getSnapShotVersionFromTimeStamp(this.config.startingTimeStampSecond);
-            }
-            if (this.config.includeHistoryData) {
-                checkpointMap.put(minCheckpointMapKey,
-                        new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, startVersion));
-                checkpointMap.put(Integer.valueOf(0),
-                        new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, startVersion));
-            } else {
-                checkpointMap.put(minCheckpointMapKey,
-                        new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY, startVersion));
-                checkpointMap.put(Integer.valueOf(0),
-                        new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY, startVersion));
-            }
-            return Optional.of(checkpointMap);
         }
 
         for (int i = 0; i < partitionList.size(); i++) {
             ByteBuffer byteBuffer = null;
             try {
+                log.info("begin to get checkpoint from pulsar");
                 byteBuffer = sourceContext.getState(DeltaCheckpoint.getStatekey(partitionList.get(i)));
+                if (byteBuffer == null) {
+                    log.info("get checkpoint for partition {} ,return empty, will start from first",
+                            partitionList.get(i));
+                    continue;
+                }
             } catch (Exception e) {
-                log.error("getState exception failed, ", e);
-                continue;
+                log.error("getState exception failed for partition {} , ", i, e);
+                throw new Exception("get checkpoint from state store failed for partition " + i);
             }
             String jsonString = Charset.forName("utf-8").decode(byteBuffer).toString();
             ObjectMapper mapper = new ObjectMapper();
             DeltaCheckpoint tmpCheckpoint = null;
             try {
+                mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 tmpCheckpoint = mapper.readValue(jsonString, DeltaCheckpoint.class);
             } catch (Exception e) {
                 log.error("parse the checkpoint for partition {} failed, jsonString: {}",
-                        partitionList.get(i), jsonString);
+                        partitionList.get(i), jsonString, e);
                 throw new Exception("parse checkpoint failed");
             }
             checkpointMap.put(partitionList.get(i), tmpCheckpoint);
@@ -188,28 +194,66 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
         }
 
         if (checkpointMap.size() == 0) {
-            Long startVersion = reader.getLatestSnapShotVersion();
+            Long startVersion = Long.valueOf(0);
             if (!this.config.startingVersion.equals("")) {
                 startVersion = reader.getAndValidateSnapShotVersion(this.config.startingSnapShotVersionNumber);
             } else if (!this.config.startingTimeStamp.equals("")) {
                 startVersion = reader.getSnapShotVersionFromTimeStamp(this.config.startingTimeStampSecond);
             }
-            if (this.config.includeHistoryData) {
-                checkpointMap.put(minCheckpointMapKey,
-                        new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, startVersion));
-            } else {
-                checkpointMap.put(minCheckpointMapKey,
-                        new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY, startVersion));
-            }
-            return Optional.of(checkpointMap);
-        }
 
-        Long version = reader.getAndValidateSnapShotVersion(checkpoint.getSnapShotVersion());
-        if (version > checkpoint.getSnapShotVersion()) {
-            log.error("checkpoint version: {} not exist, current version {}", checkpoint.getSnapShotVersion(), version);
-            throw new Exception("last checkpoint version not exist");
+            if (this.config.includeHistoryData) {
+                checkpoint = new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY, startVersion);
+            } else {
+                checkpoint = new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY, startVersion);
+            }
+            checkpointMap.put(minCheckpointMapKey, checkpoint);
+            try {
+                deltaSchema = reader.getSnapShot(startVersion).getMetadata().getSchema();
+            } catch (Exception e) {
+                log.error("getSchema from snapshot {} failed, ", startVersion, e);
+                Class<?> classType = sourceContext.getClass();
+                Field adminField = classType.getDeclaredField("pulsarAdmin");
+                adminField.setAccessible(true);
+                PulsarAdmin admin = (PulsarAdmin) adminField.get(sourceContext);
+                pulsarSchema = Schema.generic(admin.schemas().getSchemaInfo(sourceContext.getOutputTopic()));
+                log.info("get latest schema from pulsar, get {}, pulsarSchema {}",
+                        admin.schemas().getSchemaInfo(sourceContext.getOutputTopic()),
+                        pulsarSchema);
+            }
+            for (int i = 0; i < partitionList.size(); i++) {
+                log.info("checkpointMap not including partition {}, will start from first {}",
+                        partitionList.get(i), checkpoint.toString());
+                checkpointMap.put(partitionList.get(i), checkpoint);
+            }
+        } else {
+            Long startVersion = reader.getAndValidateSnapShotVersion(checkpoint.getSnapShotVersion());
+            if (startVersion > checkpoint.getSnapShotVersion()) {
+                log.error("checkpoint version: {} not exist, current version {}",
+                        checkpoint.getSnapShotVersion(), startVersion);
+                throw new Exception("last checkpoint version not exist");
+            }
+            try {
+                deltaSchema = reader.getSnapShot(startVersion).getMetadata().getSchema();
+            } catch (Exception e) {
+                log.error("getSchema from snapshot {} failed, ", startVersion, e);
+                Class<?> classType = sourceContext.getClass();
+                Field adminField = classType.getDeclaredField("pulsarAdmin");
+                adminField.setAccessible(true);
+                PulsarAdmin admin = (PulsarAdmin) adminField.get(sourceContext);
+                pulsarSchema = Schema.generic(admin.schemas().getSchemaInfo(sourceContext.getOutputTopic()));
+                log.info("get latest schema from pulsar, get {}, pulsarSchema {}",
+                        admin.schemas().getSchemaInfo(sourceContext.getOutputTopic()),
+                        pulsarSchema);
+            }
+            checkpointMap.put(minCheckpointMapKey, checkpoint);
+            for (int i = 0; i < partitionList.size(); i++) {
+                if (!checkpointMap.containsKey(partitionList.get(i))) {
+                    log.warn("checkpointMap not including partition {}, will use default checkpoint {}",
+                            partitionList.get(i), checkpoint.toString());
+                    checkpointMap.put(partitionList.get(i), checkpoint);
+                }
+            }
         }
-        checkpointMap.put(minCheckpointMapKey, checkpoint);
 
         return Optional.of(checkpointMap);
     }
@@ -236,8 +280,9 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
             newCheckPoint.setMetadataChangeFileIndex(readCursor.changeIndex);
 
             DeltaCheckpoint s = this.checkpointMap.get(Integer.valueOf((int) slot));
-            if (s == null) {
-                log.error("checkpoint for partition {} {} is missing", this.checkpointMap, slot);
+            if (s == null) { // no checkpoint before means there are no record before, no need to filter
+                log.info("checkpoint for partition {} {} is missing", this.checkpointMap, slot);
+                return true;
             }
             if (s != null && newCheckPoint.compareTo(s) >= 0) {
                 return true;

@@ -37,10 +37,15 @@ import org.slf4j.LoggerFactory;
 public class DeltaLakeConnectorConfig implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(DeltaLakeConnectorConfig.class);
     public static final String FromLatest = "latest";
+    public static final String FileSystemType = "filesystem";
+    public static final String S3Type = "s3";
     String startingVersion;
     String startingTimeStamp;
     Boolean includeHistoryData;
     String tablePath;
+    String fileSystemType;
+    String s3aAccesskey;
+    String s3aSecretKey;
 
     @JsonIgnore
     Long startingTimeStampSecond;
@@ -104,6 +109,19 @@ public class DeltaLakeConnectorConfig implements Serializable {
 
         if (conf.tablePath.equals("")) {
             throw new IOException("tablePath can not be empty");
+        }
+
+        if (conf.fileSystemType.equals("")) {
+            throw new IOException("filesystemtype can not be empty");
+        }
+
+        if (!conf.fileSystemType.equals(FileSystemType) && !conf.fileSystemType.equals(S3Type)) {
+            throw new IOException("fileSystemType not support for " + conf.fileSystemType);
+        }
+        if (conf.fileSystemType.equals(S3Type)) {
+            if (conf.s3aAccesskey.equals("") || conf.s3aSecretKey.equals("")) {
+                throw new IOException("s3aAccesskey or s3aSecretkey should be configured for s3");
+            }
         }
         return conf;
     }

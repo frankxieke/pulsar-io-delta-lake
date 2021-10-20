@@ -18,8 +18,8 @@
  */
 package org.apache.pulsar.ecosystem.io.deltalake;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.delta.standalone.actions.AddFile;
-import io.delta.standalone.actions.Metadata;
 import io.delta.standalone.actions.RemoveFile;
 import io.delta.standalone.types.BinaryType;
 import io.delta.standalone.types.BooleanType;
@@ -36,10 +36,14 @@ import io.delta.standalone.types.StringType;
 import io.delta.standalone.types.StructField;
 import io.delta.standalone.types.StructType;
 import io.delta.standalone.types.TimestampType;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Data;
+import org.apache.parquet.schema.OriginalType;
+import org.apache.parquet.schema.Type;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.schema.FieldSchemaBuilder;
@@ -50,6 +54,7 @@ import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
 import org.apache.pulsar.functions.api.Record;
+import org.apache.pulsar.io.core.SourceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,47 +79,102 @@ public class DeltaRecord implements Record<GenericRecord> {
     private static GenericSchema<GenericRecord> s;
     private static StructType deltaSchema;
     private String topic;
+    private DeltaReader.RowRecordData rowRecordData;
+    private static AtomicInteger msgCnt = new AtomicInteger(0);
+    private SourceContext sourceContext;
+    private long sequence;
+    private long partition;
+    private String partitionValue;
 
-
-    public DeltaRecord(DeltaReader.RowRecordData rowRecordData, String topic) throws Exception {
+    public DeltaRecord(DeltaReader.RowRecordData rowRecordData, String topic, StructType deltaSchema,
+                       SourceContext sourceContext) throws Exception {
+        this.rowRecordData = rowRecordData;
+        this.sourceContext = sourceContext;
+        msgCnt.getAndIncrement();
         properties = new HashMap<>();
         this.topic = topic;
+        if (this.deltaSchema != deltaSchema && deltaSchema != null) {
+            this.deltaSchema = deltaSchema;
+            this.s = convertToPulsarSchema(deltaSchema);
+        }
+
         if (rowRecordData.nextCursor.act instanceof AddFile) {
             properties.put(OP_FIELD, OP_ADD_RECORD);
-            properties.put(PARTITION_VALUE_FIELD, DeltaReader.
-                    partitionValueToString(((AddFile) rowRecordData.nextCursor.act).getPartitionValues()));
-            properties.put(CAPTURE_TS_FIELD, Long.toString(System.currentTimeMillis() / 1000));
+            partitionValue = DeltaReader.partitionValueToString(
+                    ((AddFile) rowRecordData.nextCursor.act).getPartitionValues());
+            properties.put(PARTITION_VALUE_FIELD, partitionValue);
+            properties.put(CAPTURE_TS_FIELD, Long.toString(System.currentTimeMillis()));
             properties.put(TS_FIELD, Long.toString(((AddFile) rowRecordData.nextCursor.act).getModificationTime()));
-            value = getGenericRecord(deltaSchema, rowRecordData);
+            value = getGenericRecord(deltaSchema, null, rowRecordData);
 
         } else if (rowRecordData.nextCursor.act instanceof RemoveFile) {
             properties.put(OP_FIELD, OP_DELETE_RECORD);
-            properties.put(PARTITION_VALUE_FIELD, DeltaReader.
-                    partitionValueToString(((RemoveFile) rowRecordData.nextCursor.act).getPartitionValues()));
-            properties.put(CAPTURE_TS_FIELD,  Long.toString(System.currentTimeMillis() / 1000));
+            partitionValue = DeltaReader.partitionValueToString(
+                            ((RemoveFile) rowRecordData.nextCursor.act).getPartitionValues());
+            properties.put(PARTITION_VALUE_FIELD, partitionValue);
+            properties.put(CAPTURE_TS_FIELD,  Long.toString(System.currentTimeMillis()));
             properties.put(TS_FIELD, Long.toString(((RemoveFile) rowRecordData.nextCursor.act).
                     getDeletionTimestamp().get()));
-            value = getGenericRecord(deltaSchema, rowRecordData);
+            value = getGenericRecord(deltaSchema, null, rowRecordData);
         } else {
-            properties.put(OP_FIELD, OP_META_SCHEMA);
-            deltaSchema = ((Metadata) rowRecordData.nextCursor.act).getSchema();
-            s = convertToPulsarSchema(deltaSchema);
+            log.error("DeltaRecord: Not Support this kind of record {}", rowRecordData.nextCursor.act);
+            throw new Exception("DeltaRecord: not support this kind of record");
         }
+        String partitionValueStr = properties.get(PARTITION_VALUE_FIELD);
+        partition = DeltaReader.getPartitionIdByDeltaPartitionValue(partitionValueStr,
+                DeltaReader.topicPartitionNum);
+        sequence = partition + msgCnt.get() * DeltaReader.topicPartitionNum;
     }
 
-    public static GenericSchema<GenericRecord> convertToPulsarSchema(StructType parquetSchema) throws Exception {
+    public DeltaRecord(DeltaReader.RowRecordData rowRecordData, String topic, GenericSchema<GenericRecord> pulsarSchema,
+                       SourceContext sourceContext) throws Exception {
+        this.s = pulsarSchema;
+        this.sourceContext = sourceContext;
+        msgCnt.getAndIncrement();
+        properties = new HashMap<>();
+        this.topic = topic;
+
+        if (rowRecordData.nextCursor.act instanceof AddFile) {
+            properties.put(OP_FIELD, OP_ADD_RECORD);
+            partitionValue = DeltaReader.partitionValueToString(
+                    ((AddFile) rowRecordData.nextCursor.act).getPartitionValues());
+            properties.put(PARTITION_VALUE_FIELD, partitionValue);
+            properties.put(CAPTURE_TS_FIELD, Long.toString(System.currentTimeMillis()));
+            properties.put(TS_FIELD, Long.toString(((AddFile) rowRecordData.nextCursor.act).getModificationTime()));
+            value = getGenericRecord(deltaSchema, pulsarSchema, rowRecordData);
+
+        } else if (rowRecordData.nextCursor.act instanceof RemoveFile) {
+            properties.put(OP_FIELD, OP_DELETE_RECORD);
+            partitionValue = DeltaReader.partitionValueToString(
+                    ((RemoveFile) rowRecordData.nextCursor.act).getPartitionValues());
+            properties.put(PARTITION_VALUE_FIELD, partitionValue);
+            properties.put(CAPTURE_TS_FIELD,  Long.toString(System.currentTimeMillis()));
+            properties.put(TS_FIELD, Long.toString(((RemoveFile) rowRecordData.nextCursor.act).
+                    getDeletionTimestamp().get()));
+            value = getGenericRecord(deltaSchema, pulsarSchema, rowRecordData);
+        } else {
+            log.error("DeltaRecord: Not Support this kind of record {}", rowRecordData.nextCursor.act);
+            throw new Exception("DeltaRecord: not support this kind of record");
+        }
+        String partitionValueStr = properties.get(PARTITION_VALUE_FIELD);
+        partition = DeltaReader.getPartitionIdByDeltaPartitionValue(partitionValueStr,
+                DeltaReader.topicPartitionNum);
+        sequence = partition + msgCnt.get() * DeltaReader.topicPartitionNum;
+    }
+
+    public static GenericSchema<GenericRecord> convertToPulsarSchema(StructType deltaSchema) throws Exception {
         // Try to transform schema
         RecordSchemaBuilder builder = SchemaBuilder
-                .record(parquetSchema.getTypeName());
+                .record(deltaSchema.getTypeName());
         FieldSchemaBuilder fbuilder = null;
-        for (int i = 0; i < parquetSchema.getFields().length; i++) {
-            StructField field = parquetSchema.getFields()[i];
-            boolean required = field.isNullable();
+        for (int i = 0; i < deltaSchema.getFields().length; i++) {
+            StructField field = deltaSchema.getFields()[i];
+            boolean nullable = field.isNullable();
             fbuilder = builder.field(field.getName());
-            if (required){
-                fbuilder = fbuilder.required();
-            } else {
+            if (nullable){
                 fbuilder = fbuilder.optional();
+            } else {
+                fbuilder = fbuilder.required();
             }
             if (field.getDataType() instanceof StringType) {
                 fbuilder = fbuilder.type(SchemaType.STRING);
@@ -149,69 +209,79 @@ public class DeltaRecord implements Record<GenericRecord> {
         if (fbuilder == null) {
             throw new Exception("filed is empty, can not covert to pulsar schema");
         }
-//        GenericSchema<GenericRecord> schema1 = GenericAvroSchema.of(builder.build(SchemaType.AVRO));
-//        GenericSchema<GenericRecord> schema1 = GenericSchema.<GenericRecord>of(builder.build(SchemaType.AVRO));
 
         GenericSchema<GenericRecord> t = Schema.generic(builder.build(SchemaType.AVRO));
 
         return t;
     }
 
-    private GenericRecord getGenericRecord(StructType rowRecordType, DeltaReader.RowRecordData rowRecordData) {
-        if (rowRecordType == null) { // TODO f
-            StructField [] fields = new StructField[3];
-            fields[0] = new StructField("c1", new LongType(), true);
-            fields[1] = new StructField("c2", new LongType(), true);
-            fields[2] = new StructField("c3", new StringType(), true);
-            try {
-                rowRecordType = new StructType(fields);
-            } catch (Exception e) {
-                log.error("new sruct type failed, ", e);
+    private GenericRecord getGenericRecord(StructType deltaSchema, GenericSchema<GenericRecord> pulsarSchema,
+                                           DeltaReader.RowRecordData rowRecordData) {
+        GenericRecordBuilder builder;
+        GenericRecord g;
+        if (deltaSchema != null) {
+            builder = s.newRecordBuilder();
+            for (int i = 0; i < deltaSchema.getFields().length; i++) {
+                StructField field = deltaSchema.getFields()[i];
+                Object value;
+                if (field.getDataType() instanceof StringType) {
+                    value = rowRecordData.simpleGroup.getString(i, 0);
+                } else if (field.getDataType() instanceof BooleanType) {
+                    value = rowRecordData.simpleGroup.getBoolean(i, 0);
+                } else if (field.getDataType() instanceof BinaryType) {
+                    value = rowRecordData.simpleGroup.getBinary(i, 0);
+                } else if (field.getDataType() instanceof DoubleType) {
+                    value = rowRecordData.simpleGroup.getDouble(i, 0);
+                } else if (field.getDataType() instanceof FloatType) {
+                    value = rowRecordData.simpleGroup.getFloat(i, 0);
+                } else if (field.getDataType() instanceof IntegerType) {
+                    value = rowRecordData.simpleGroup.getInteger(i, 0);
+                } else if (field.getDataType() instanceof LongType) {
+                    value = rowRecordData.simpleGroup.getLong(i, 0);
+                } else if (field.getDataType() instanceof ShortType) {
+                    value = rowRecordData.simpleGroup.getInteger(i, 0);
+                } else if (field.getDataType() instanceof ByteType) {
+                    value = rowRecordData.simpleGroup.getInteger(i, 0);
+                } else if (field.getDataType() instanceof NullType) {
+                    value = rowRecordData.simpleGroup.getInteger(i, 0);
+                } else if (field.getDataType() instanceof DateType) {
+                    value = rowRecordData.simpleGroup.getTimeNanos(i, 0);
+                } else if (field.getDataType() instanceof TimestampType) {
+                    value = rowRecordData.simpleGroup.getTimeNanos(i, 0);
+                } else if (field.getDataType() instanceof DecimalType) {
+                    value = rowRecordData.simpleGroup.getDouble(i, 0);
+                } else { // not support other data type
+                    value = rowRecordData.simpleGroup.getValueToString(i, 0);
+                }
+                builder.set(field.getName(), value);
             }
-        }
-        try {
-            s = convertToPulsarSchema(rowRecordType);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        GenericRecordBuilder builder = s.newRecordBuilder();
-        for (int i = 0; i < rowRecordType.getFields().length; i++) {
-            StructField field = rowRecordType.getFields()[i];
-            Object value;
-            if (field.getDataType() instanceof StringType) {
-                value = rowRecordData.simpleGroup.getString(i, 0);
-            } else if (field.getDataType() instanceof BooleanType) {
-                value = rowRecordData.simpleGroup.getBoolean(i, 0);
-            } else if (field.getDataType() instanceof BinaryType) {
-                value = rowRecordData.simpleGroup.getBinary(i, 0);
-            } else if (field.getDataType() instanceof DoubleType) {
-                value = rowRecordData.simpleGroup.getDouble(i, 0);
-            } else if (field.getDataType() instanceof FloatType) {
-                value = rowRecordData.simpleGroup.getFloat(i, 0);
-            } else if (field.getDataType() instanceof IntegerType) {
-                value = rowRecordData.simpleGroup.getInteger(i, 0);
-            } else if (field.getDataType() instanceof LongType) {
-                value = rowRecordData.simpleGroup.getLong(i, 0);
-            } else if (field.getDataType() instanceof ShortType) {
-                value = rowRecordData.simpleGroup.getInteger(i, 0);
-            } else if (field.getDataType() instanceof ByteType) {
-                value = rowRecordData.simpleGroup.getInteger(i, 0);
-            } else if (field.getDataType() instanceof NullType) {
-                value = rowRecordData.simpleGroup.getInteger(i, 0);
-            } else if (field.getDataType() instanceof DateType) {
-                value = rowRecordData.simpleGroup.getTimeNanos(i, 0);
-            } else if (field.getDataType() instanceof TimestampType) {
-                value = rowRecordData.simpleGroup.getTimeNanos(i, 0);
-            } else if (field.getDataType() instanceof DecimalType) {
-                value = rowRecordData.simpleGroup.getDouble(i, 0);
-            } else { // not support other data type
-                value = rowRecordData.simpleGroup.getValueToString(i, 0);
+            g = builder.build();
+            return g;
+        } else if (pulsarSchema != null) {
+            builder = pulsarSchema.newRecordBuilder();
+            log.info("parquet Schem: {}", rowRecordData.parquetSchema);
+            for (int i = 0; i < rowRecordData.parquetSchema.size(); i++) {
+                  Type type = rowRecordData.parquetSchema.get(i);
+                  Object value;
+                  if (type.getOriginalType() == OriginalType.UTF8) {
+                      value = rowRecordData.simpleGroup.getString(i, 0);
+                  } else if (type.getOriginalType() == OriginalType.INT_8
+                          || type.getOriginalType() == OriginalType.INT_16
+                          || type.getOriginalType() == OriginalType.INT_32) {
+                      value = rowRecordData.simpleGroup.getInteger(i, 0);
+                  } else if (type.getOriginalType() == OriginalType.INT_64) {
+                      value = rowRecordData.simpleGroup.getLong(i, 0);
+                  } else {
+                      log.info("i:{} otherType {}", i, type.getOriginalType());
+                      value = rowRecordData.simpleGroup.getValueToString(i, 0);
+                  }
+                  builder.set(type.getName(), value);
             }
-            builder.set(field.getName(), value);
+            g = builder.build();
+            return g;
+        } else {
+            return null;
         }
-        GenericRecord g = builder.build();
-        return g;
-
     }
 
     @Override
@@ -221,7 +291,7 @@ public class DeltaRecord implements Record<GenericRecord> {
 
     @Override
     public Optional<String> getKey() {
-        return Optional.empty();
+        return Optional.of(partitionValue);
     }
 
     @Override
@@ -251,15 +321,13 @@ public class DeltaRecord implements Record<GenericRecord> {
 
     @Override
     public Optional<Integer> getPartitionIndex() {
-        Integer partitionId = 0;
-        String partitionValueStr = properties.get(PARTITION_VALUE_FIELD);
-        return Optional.of((int) DeltaReader.getPartitionIdByDeltaPartitionValue(partitionValueStr,
-                DeltaReader.topicPartitionNum));
+      return Optional.empty();
     }
 
     @Override
     public Optional<Long> getRecordSequence() {
-        return Optional.empty();
+
+        return Optional.of(sequence);
     }
 
     @Override
@@ -269,12 +337,31 @@ public class DeltaRecord implements Record<GenericRecord> {
 
     @Override
     public void ack() {
-
+        DeltaCheckpoint checkpoint;
+        if (this.rowRecordData.nextCursor.isFullSnapShot) {
+            checkpoint = new DeltaCheckpoint(DeltaCheckpoint.StateType.FULL_COPY,
+                    this.rowRecordData.nextCursor.version);
+            checkpoint.setMetadataChangeFileIndex(this.rowRecordData.nextCursor.changeIndex);
+            checkpoint.setRowNum(this.rowRecordData.nextCursor.rowNum);
+        } else {
+            checkpoint = new DeltaCheckpoint(DeltaCheckpoint.StateType.INCREMENTAL_COPY,
+                    this.rowRecordData.nextCursor.version);
+            checkpoint.setMetadataChangeFileIndex(this.rowRecordData.nextCursor.changeIndex);
+            checkpoint.setRowNum(this.rowRecordData.nextCursor.rowNum);
+        }
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            sourceContext.putState(DeltaCheckpoint.getStatekey((int) partition),
+                    ByteBuffer.wrap(mapper.writeValueAsBytes(checkpoint)));
+            log.info("ack parition {} sequence {} checkpoint {}", partition, sequence, checkpoint.toString());
+        } catch (Exception e) {
+            log.error("putState failed for partition {} sequence {} ", partition, sequence, e);
+        }
     }
 
     @Override
     public void fail() {
-
+        log.info("send message partition {} sequence {} failed", partition, sequence);
     }
 
     @Override

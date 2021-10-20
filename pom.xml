@@ -99,12 +99,30 @@
       <dependency>
         <groupId>org.apache.pulsar</groupId>
         <artifactId>pulsar-io-core</artifactId>
-        <version>2.9.0-SNAPSHOT</version>
+        <version>${pulsar.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.pulsar</groupId>
+        <artifactId>pulsar-client</artifactId>
+        <version>${pulsar.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.apache.pulsar</groupId>
+        <artifactId>pulsar-client-original</artifactId>
+        <version>${pulsar.version}</version>
       </dependency>
 
 <!--      <dependency>-->
 <!--        <groupId>org.apache.pulsar</groupId>-->
 <!--        <artifactId>pulsar-functions-instance</artifactId>-->
+<!--        <version>${pulsar.version}</version>-->
+<!--      </dependency>-->
+
+<!--      <dependency>-->
+<!--        <groupId>org.apache.pulsar</groupId>-->
+<!--        <artifactId>pulsar-functions-api</artifactId>-->
 <!--        <version>${pulsar.version}</version>-->
 <!--      </dependency>-->
 
@@ -182,12 +200,6 @@
       <scope>provided</scope>
     </dependency>
 
-<!--    <dependency>-->
-<!--      <groupId>org.apache.pulsar</groupId>-->
-<!--      <artifactId>pulsar-functions-instance</artifactId>-->
-<!--      <version>${pulsar.version}</version>-->
-<!--    </dependency>-->
-
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-client</artifactId>
@@ -207,6 +219,18 @@
       <artifactId>pulsar-io-core</artifactId>
       <version>${pulsar.version}</version>
     </dependency>
+
+<!--    <dependency>-->
+<!--      <groupId>org.apache.pulsar</groupId>-->
+<!--      <artifactId>pulsar-functions-instance</artifactId>-->
+<!--      <version>${pulsar.version}</version>-->
+<!--    </dependency>-->
+
+<!--    <dependency>-->
+<!--      <groupId>org.apache.pulsar</groupId>-->
+<!--      <artifactId>pulsar-functions-api</artifactId>-->
+<!--      <version>${pulsar.version}</version>-->
+<!--    </dependency>-->
 
     <dependency>
       <groupId>org.apache.pulsar</groupId>
@@ -259,20 +283,16 @@
       <artifactId>testcontainers</artifactId>
       <scope>test</scope>
     </dependency>
+		
+	<dependency>
+        <groupId>org.apache.pulsar</groupId>
+        <artifactId>pulsar-client-original</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.pulsar</groupId>
+      <artifactId>pulsar-client</artifactId>
+    </dependency>
 
-
-
-<!--    <dependency>-->
-<!--      <groupId>org.apache.pulsar</groupId>-->
-<!--      <artifactId>pulsar-client</artifactId>-->
-<!--      <version>2.9.0-SNAPSHOT</version>-->
-<!--      <scope>provided</scope>-->
-<!--    </dependency>-->
-<!--    <dependency>-->
-<!--      <groupId>org.apache.pulsar</groupId>-->
-<!--      <artifactId>pulsar-common</artifactId>-->
-<!--      <version>2.9.0-SNAPSHOT</version>-->
-<!--    </dependency>-->
     <dependency>
       <groupId>org.apache.parquet</groupId>
       <artifactId>parquet-column</artifactId>
@@ -281,37 +301,15 @@
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
-      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-annotations</artifactId>
-      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-core</artifactId>
-      <scope>provided</scope>
     </dependency>
-<!--    <dependency>-->
-<!--      <groupId>org.apache.pulsar</groupId>-->
-<!--      <artifactId>pulsar-client-admin</artifactId>-->
-<!--      <version>2.9.0-SNAPSHOT</version>-->
-<!--      <exclusions>-->
-<!--        <exclusion>-->
-<!--          <groupId>com.fasterxml.jackson.jaxrs</groupId>-->
-<!--          <artifactId>jackson-jaxrs-json-provider</artifactId>-->
-<!--        </exclusion>-->
-<!--        <exclusion>-->
-<!--          <groupId>com.fasterxml.jackson.module</groupId>-->
-<!--          <artifactId>jackson-module-jsonSchemar</artifactId>-->
-<!--        </exclusion>-->
-<!--        <exclusion>-->
-<!--          <groupId>javax.ws.rs</groupId>-->
-<!--          <artifactId>javax.ws.rs-api</artifactId>-->
-<!--        </exclusion>-->
-<!--      </exclusions>-->
-<!--    </dependency>-->
   </dependencies>
 
   <build>
