@@ -56,6 +56,9 @@ public class DeltaLakeConnectorConfig implements Serializable {
         this.startingVersion = "";
         this.startingTimeStamp = "";
         this.tablePath = "";
+        this.fileSystemType = "";
+        this.s3aSecretKey = "";
+        this.s3aAccesskey = "";
     }
 
     /**
