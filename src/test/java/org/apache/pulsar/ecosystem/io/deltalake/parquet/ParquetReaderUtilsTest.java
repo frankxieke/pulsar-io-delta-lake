@@ -19,9 +19,9 @@
 package org.apache.pulsar.ecosystem.io.deltalake.parquet;
 
 import junit.framework.TestCase;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.parquet.example.data.simple.SimpleGroup;
-import org.apache.parquet.schema.MessageType;
+//import org.apache.hadoop.conf.Configuration;
+//import org.apache.parquet.example.data.simple.SimpleGroup;
+//import org.apache.parquet.schema.MessageType;
 
 /**
  * The ParquetReaderUtilsTest test ParquetReaderUtils.
@@ -29,20 +29,20 @@ import org.apache.parquet.schema.MessageType;
 public class ParquetReaderUtilsTest extends TestCase {
 
     public void testGetPargetParquetDataquetData() {
-        String path = "s3a://parquetxieke/part-00000-12bf10f8-92b8-4a1d-ad4c-11c1d975814e-c000.snappy.parquet";
-        try {
-            Configuration conf = new Configuration();
-            ParquetReaderUtils.Parquet parquet = ParquetReaderUtils.getPargetParquetDataquetData(path, conf);
-            MessageType messageType = parquet.getMessageType();
-            System.out.println(parquet.getSchema());
-            for (int i = 0; i < parquet.getData().size(); i++) {
-                SimpleGroup g = parquet.getData().get(i);
-                System.out.println(g.getLong(0, 0));
-                System.out.println(g.getLong(1, 0));
-                System.out.println(g.getBinary(2, 0).toStringUsingUTF8());
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+//        String path = "s3a://parquetxieke/part-00000-12bf10f8-92b8-4a1d-ad4c-11c1d975814e-c000.snappy.parquet";
+//        try {
+//            Configuration conf = new Configuration();
+//            ParquetReaderUtils.Parquet parquet = ParquetReaderUtils.getPargetParquetDataquetData(path, conf);
+//            MessageType messageType = parquet.getMessageType();
+//            System.out.println(parquet.getSchema());
+//            for (int i = 0; i < parquet.getData().size(); i++) {
+//                SimpleGroup g = parquet.getData().get(i);
+//                System.out.println(g.getLong(0, 0));
+//                System.out.println(g.getLong(1, 0));
+//                System.out.println(g.getBinary(2, 0).toStringUsingUTF8());
+//            }
+//        } catch (Exception e) {
+//            e.printStackTrace();
+//        }
     }
 }

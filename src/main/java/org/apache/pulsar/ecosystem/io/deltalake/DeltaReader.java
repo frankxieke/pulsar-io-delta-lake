@@ -214,7 +214,7 @@ public class DeltaReader {
             Iterator<VersionLog> vlogs = deltaLog.getChanges(startVersion, false);
             while (vlogs.hasNext()) {
                 VersionLog v = vlogs.next();
-                if (v.getVersion() > startVersion) {
+                if (v.getVersion() > startVersion) { // may not happen
                     continue;
                 }
                 List<Action> actions = v.getActions();
@@ -262,7 +262,7 @@ public class DeltaReader {
                         }
                     } else if (act instanceof Metadata){
                         Metadata meta = (Metadata) act;
-                        log.info("getChanges version: {} index: {} metadataChange schema:{} partitionColum:{}"
+                            log.info("getChanges version: {} index: {} metadataChange schema:{} partitionColum:{}"
                                         + " format:{} createTime:{}",
                                 startVersion, i, meta.getSchema().getTreeString(),
                                 meta.getPartitionColumns().toString(),

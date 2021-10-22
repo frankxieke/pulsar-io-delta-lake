@@ -230,7 +230,7 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
             if (startVersion > checkpoint.getSnapShotVersion()) {
                 log.error("checkpoint version: {} not exist, current version {}",
                         checkpoint.getSnapShotVersion(), startVersion);
-                throw new Exception("last checkpoint version not exist");
+                throw new Exception("last checkpoint version not exist, need to handle this manually");
             }
             try {
                 deltaSchema = reader.getSnapShot(startVersion).getMetadata().getSchema();
@@ -242,7 +242,7 @@ public class DeltaLakeConnectorSource implements Source<GenericRecord> {
                 PulsarAdmin admin = (PulsarAdmin) adminField.get(sourceContext);
                 pulsarSchema = Schema.generic(admin.schemas().getSchemaInfo(sourceContext.getOutputTopic()));
                 log.info("get latest schema from pulsar, get {}, pulsarSchema {}",
-                        admin.schemas().getSchemaInfo(sourceContext.getOutputTopic()),
+                        admin.schemas().getAllSchemas(sourceContext.getOutputTopic()).get(0),
                         pulsarSchema);
             }
             checkpointMap.put(minCheckpointMapKey, checkpoint);
